@@ -356,7 +356,7 @@ class PPO:
                     batch_data.wrapper(*states)
                     actions, log_ps,_ = self.policy(batch_data, feasible_actions)
 
-                    # values=self.critic(batch_data, feasible_actions)
+                    values=self.critic(batch_data, feasible_actions)
                     states_buffer.append((states,feasible_actions))
                     actions_buffer.append(actions)
 
@@ -366,7 +366,7 @@ class PPO:
                 rewards_buffer.append(rewards)
                 log_probs_buffer.append(log_ps)
                 dones_buffer.append(dones)
-                # values_buffer.append(values)
+                values_buffer.append(values)
 
                 # self.reward.append(rewards)
 
@@ -445,7 +445,7 @@ class PPO:
         adv=[]
         # for i,(r,v) in enumerate(zip(rewards[::-1],old_values[::-1])):
         for r in rewards[::-1]:
-            # if i==0: v_next=v
+        #     if i==0: v_next=v
             R = r + args.gamma * R
             gae=R
             # delta = r + args.gamma * v_next - v
@@ -472,13 +472,13 @@ class PPO:
             for (old_states,old_feasible_actions),old_actions in zip(states,actions):
 
                 batch_data.wrapper(*old_states)
-                # critic_values = self.critic(batch_data, old_feasible_actions)
+                critic_values = self.critic(batch_data, old_feasible_actions)
                 log_ps, dist_entropy = self.policy.evaluate(batch_data, old_feasible_actions, old_actions)
                 # old_log_ps,_=self.oldpolicy.evaluate(batch_data, old_feasible_actions,old_actions)
                 # _,log_ps,_=self.policy(batch_data, old_feasible_actions)
 
                 log_probs_buffer.append(log_ps)
-                # new_values_buffer.append(critic_values)
+                new_values_buffer.append(critic_values)
                 dist_entropy_buffer.append(dist_entropy)
                 # old_log_probs_buffer.append(old_log_ps.detach())
 
@@ -489,12 +489,13 @@ class PPO:
             dist_entropy_buffer_tensor=torch.cat(dist_entropy_buffer, dim=-1)
 
             losses = []
-            value_losses=[]
+            entropy_losses = []
+            # value_losses=[]
             entropy=[]
             for b in range(returns.shape[0]):
                 # if self.clip_v:
                 #     masked_old=torch.masked_select(old_values[b], ~dones[b])
-                masked_R = torch.masked_select(returns[b], ~dones[b])
+                # masked_R = torch.masked_select(returns[b], ~dones[b])
                 # masked_value=torch.masked_select(new_values[b], ~dones[b])
                 masked_log_prob = torch.masked_select(log_probs[b], ~dones[b])
                 masked_old_log_prob = torch.masked_select(old_log_probs_tensor[b],~dones[b])
@@ -506,14 +507,14 @@ class PPO:
                 #         masked_adv.nelement() !=args.steps_learn):
                 #     continue
 
-                masked_R = (masked_R - masked_R.mean()) / (torch.std(masked_R, unbiased=False) + self.eps)
+                # masked_R = (masked_R - masked_R.mean()) / (torch.std(masked_R, unbiased=False) + self.eps)
                 # masked_value = (masked_value - masked_value.mean()) / (
                 #             torch.std(masked_value, unbiased=False) + self.eps)
                 # masked_old=(masked_old - masked_old.mean()) / (
                 #             torch.std(masked_old, unbiased=False) + self.eps)
                 # if self.clip_v:
                 #     clip_v = masked_old + torch.clamp(masked_value - masked_old, -self.clip_ratio, self.clip_ratio)
-                #     v_max = torch.max(((masked_old - masked_R) ** 2), ((clip_v - masked_R) ** 2))
+                #     v_max = torch.max(((masked_old - masked_R) ** 2), ((clip_v - masked_R) ** 2)).sum()
 
                 masked_advantage = (masked_adv - masked_adv.mean()) / (torch.std(masked_adv, unbiased=False) + self.eps)
 
@@ -525,26 +526,27 @@ class PPO:
 
                 loss = (- torch.min(surr1, surr2)).sum()
                 loss_entropy = masked_entropy.mean()
-                # loss = (- torch.min(surr1,surr2)+masked_entropy*args.beta).sum()
 
                 losses.append(loss)
+                entropy_losses.append(loss_entropy)
                 # value_losses.append(v_max)
-
-            entropy.append(loss_entropy)
+            # entropy.append(loss_entropy)
 
             self.optimizer_policy.zero_grad()
             mean_loss = torch.stack(losses).mean()
+            mean_entropy = torch.stack(entropy_losses).mean()
+            mean_loss=mean_loss+mean_entropy*args.beta
             mean_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 0.5)
             # self.p_loss.append(mean_loss)
-            self.entropy.append(torch.stack(entropy).mean().item())
+            self.entropy.append(mean_entropy.item())
             self.optimizer_policy.step()
 
             # self.optimizer_critic.zero_grad()
             # mean_value_loss = torch.stack(value_losses).mean() * args.alpha
             # mean_value_loss.backward()
             # torch.nn.utils.clip_grad_norm_(self.critic.parameters(),0.5)
-            # self.v_loss.append(mean_value_loss)
+            # # self.v_loss.append(mean_value_loss)
             # self.optimizer_critic.step()
 
 
